@@ -1337,10 +1337,23 @@ void ABGRToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
 static vec8 kABGRToY = {33, 65, 13, 0, 33, 65, 13, 0,
                         33, 65, 13, 0, 33, 65, 13, 0};
 
-src[0] = 33, src[1] = 65,  sre[2]  = 13, src[4]  = 0, src[5]  = 33, src[6]  = 65, src[7]  = 13, src[8]  = 0
+src[0] = 33, src[1] = 65,  src[2]  = 13, src[4]  = 0, src[5]  = 33, src[6]  = 65, src[7]  = 13, src[8]  = 0
 src[9] = 33, src[10] = 65, src[11] = 13, src[12] = 0, src[13] = 33, src[13] = 65, src[14] = 13, src[15] = 0
 
 dest[0] = 0, dest[1] = 0, dest[2] = 0, dest[3] = 0
+
+uint8 = 8 bits / 1 byte
+double quadword = 128 bits / 16 bytes
+pixel = 32 bits / 4 bytes
+
+xmm0:
+AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR | AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR
+AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR | AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR
+
+xmm1:
+AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR | AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR
+AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR | AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR
+
 
 */
 void ABGR10ToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
@@ -1350,11 +1363,11 @@ void ABGR10ToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
 
     LABELALIGN
     "1:                                        \n"
-    "movdqu    " MEMACCESS(0) ",%%xmm0         \n" // a %xmm0 = 0x0 (%0)   0(%0)
-    "movdqu    " MEMACCESS2(0x10,0) ",%%xmm1   \n" // b %xmm1 = 0x10 (%0) 16(%0)
-    "movdqu    " MEMACCESS2(0x20,0) ",%%xmm2   \n" // g %xmm2 = 0x20 (%0) 32(%0)
-    "movdqu    " MEMACCESS2(0x30,0) ",%%xmm3   \n" // r %xmm3 = 0x30 (%0) 48(%0)
-    "pmaddubsw %%xmm4,%%xmm0                   \n" // add and multiply by vector kABGRToY
+    "movdqu    " MEMACCESS(0) ",%%xmm0         \n" // a %xmm0 = 0x0 (%0)   0b(%0)
+    "movdqu    " MEMACCESS2(0x10,0) ",%%xmm1   \n" // b %xmm1 = 0x10 (%0) 16b(%0) - 16b cause double quadword?
+    "movdqu    " MEMACCESS2(0x20,0) ",%%xmm2   \n" // g %xmm2 = 0x20 (%0) 32b(%0)
+    "movdqu    " MEMACCESS2(0x30,0) ",%%xmm3   \n" // r %xmm3 = 0x30 (%0) 48b(%0)
+    "pmaddubsw %%xmm4,%%xmm0                   \n" // add and multiply by vector kABGRToY (16 bits, 2 bytes)
     "pmaddubsw %%xmm4,%%xmm1                   \n" // dest[15-0] = src[15-8] * dest[15-8] + src[7-0] * dest[7-0]
     "pmaddubsw %%xmm4,%%xmm2                   \n"
     "pmaddubsw %%xmm4,%%xmm3                   \n"
@@ -1367,11 +1380,11 @@ void ABGR10ToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
     "paddb     %%xmm5,%%xmm0                   \n" // destination [0-7] = destination[0-7] + src[0-7]
     "movdqu    %%xmm0," MEMACCESS(1) "         \n" // move xmm0 into memaccess(1)
     "lea       " MEMLEA(0x10,1) ",%1           \n" // set %1 = 0x10(%1)
-    "sub       $0x10,%2                        \n" // width = width - $0x10
-    "jg        1b                              \n"
+    "sub       $0x10,%2                        \n" // width = width - $0x10 (16)
+    "jg        1b                              \n" // jump if width > 0
   : "+r"(src_abgr),  // %0
     "+r"(dst_y),     // %1
-    "+r"(width)        // %2
+    "+r"(width)      // %2
   : "m"(kABGRToY),   // %3
     "m"(kAddY16)     // %4
   : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
