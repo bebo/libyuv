@@ -10,6 +10,8 @@
 
 #include "libyuv/row.h"
 
+#include <windows.h>
+
 #ifdef __cplusplus
 namespace libyuv {
 extern "C" {
@@ -1330,6 +1332,52 @@ void ABGRToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
   );
 }
 
+// FIXME
+/*
+static vec8 kABGRToY = {33, 65, 13, 0, 33, 65, 13, 0,
+                        33, 65, 13, 0, 33, 65, 13, 0};
+
+src[0] = 33, src[1] = 65,  sre[2]  = 13, src[4]  = 0, src[5]  = 33, src[6]  = 65, src[7]  = 13, src[8]  = 0
+src[9] = 33, src[10] = 65, src[11] = 13, src[12] = 0, src[13] = 33, src[13] = 65, src[14] = 13, src[15] = 0
+
+dest[0] = 0, dest[1] = 0, dest[2] = 0, dest[3] = 0
+
+*/
+void ABGR10ToYRow_SSSE3(const uint8* src_abgr, uint8* dst_y, int width) {
+  asm volatile (
+    "movdqa    %4,%%xmm5                       \n" // set %xmm5 = %4
+    "movdqa    %3,%%xmm4                       \n" // set %xmm4 = %3
+
+    LABELALIGN
+    "1:                                        \n"
+    "movdqu    " MEMACCESS(0) ",%%xmm0         \n" // a %xmm0 = 0x0 (%0)   0(%0)
+    "movdqu    " MEMACCESS2(0x10,0) ",%%xmm1   \n" // b %xmm1 = 0x10 (%0) 16(%0)
+    "movdqu    " MEMACCESS2(0x20,0) ",%%xmm2   \n" // g %xmm2 = 0x20 (%0) 32(%0)
+    "movdqu    " MEMACCESS2(0x30,0) ",%%xmm3   \n" // r %xmm3 = 0x30 (%0) 48(%0)
+    "pmaddubsw %%xmm4,%%xmm0                   \n" // add and multiply by vector kABGRToY
+    "pmaddubsw %%xmm4,%%xmm1                   \n" // dest[15-0] = src[15-8] * dest[15-8] + src[7-0] * dest[7-0]
+    "pmaddubsw %%xmm4,%%xmm2                   \n"
+    "pmaddubsw %%xmm4,%%xmm3                   \n"
+    "lea       " MEMLEA(0x40,0) ",%0           \n" // set %0 = 0x40(%0)
+    "phaddw    %%xmm1,%%xmm0                   \n" // packed horizontal add [a0+a1] [a2+a3]
+    "phaddw    %%xmm3,%%xmm2                   \n" //
+    "psrlw     $0x7,%%xmm0                     \n" // shift xmm0 >> 7
+    "psrlw     $0x7,%%xmm2                     \n" // shift xmm2 >> 7
+    "packuswb  %%xmm2,%%xmm0                   \n" // packed with unsigned saturation
+    "paddb     %%xmm5,%%xmm0                   \n" // destination [0-7] = destination[0-7] + src[0-7]
+    "movdqu    %%xmm0," MEMACCESS(1) "         \n" // move xmm0 into memaccess(1)
+    "lea       " MEMLEA(0x10,1) ",%1           \n" // set %1 = 0x10(%1)
+    "sub       $0x10,%2                        \n" // width = width - $0x10
+    "jg        1b                              \n"
+  : "+r"(src_abgr),  // %0
+    "+r"(dst_y),     // %1
+    "+r"(width)        // %2
+  : "m"(kABGRToY),   // %3
+    "m"(kAddY16)     // %4
+  : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
+  );
+}
+
 void RGBAToYRow_SSSE3(const uint8* src_rgba, uint8* dst_y, int width) {
   asm volatile (
     "movdqa    %4,%%xmm5                       \n"
@@ -1345,12 +1393,12 @@ void RGBAToYRow_SSSE3(const uint8* src_rgba, uint8* dst_y, int width) {
     "pmaddubsw %%xmm4,%%xmm1                   \n"
     "pmaddubsw %%xmm4,%%xmm2                   \n"
     "pmaddubsw %%xmm4,%%xmm3                   \n"
-    "lea       " MEMLEA(0x40,0) ",%0           \n"
-    "phaddw    %%xmm1,%%xmm0                   \n"
-    "phaddw    %%xmm3,%%xmm2                   \n"
-    "psrlw     $0x7,%%xmm0                     \n"
-    "psrlw     $0x7,%%xmm2                     \n"
-    "packuswb  %%xmm2,%%xmm0                   \n"
+    "lea       " MEMLEA(0x40,0) ",%0           \n" // load effective address (load a pointer to the item), destination - %0 = src_rgba
+    "phaddw    %%xmm1,%%xmm0                   \n" // packed horizontal [a0 + a1] [a2 + a3] add xmm1 into xmm0 
+    "phaddw    %%xmm3,%%xmm2                   \n" // packed horizontal add add xmm3 into xmm2
+    "psrlw     $0x7,%%xmm0                     \n" // xmm0 >> 7
+    "psrlw     $0x7,%%xmm2                     \n" // xmm2 >> 7
+    "packuswb  %%xmm2,%%xmm0                   \n" // make it unsigned
     "paddb     %%xmm5,%%xmm0                   \n"
     "movdqu    %%xmm0," MEMACCESS(1) "         \n"
     "lea       " MEMLEA(0x10,1) ",%1           \n"
